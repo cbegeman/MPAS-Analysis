@@ -158,12 +158,10 @@ def histogram_analysis_plot(config, dsvalues, calendar, title, xlabel, ylabel,
         # TODO read hist_bins from a config file
         hist_bins = 20
         hist_values = dsvalue.values.ravel()
-        print(f'shape(dsvalue)={np.shape(dsvalue.values)}')
-        print(f'shape(hist_values)={np.shape(hist_values)}')
         hist_type = 'step'
         ax.hist(hist_values, range=hist_val_range, bins=hist_bins,
                 linestyle=linestyle, linewidth=linewidth,
-                label=label, density=density)
+                histtype=hist_type, label=label, density=density)
         if labelCount > 1:
             plt.legend(loc=legendLocation)
 

@@ -84,7 +84,6 @@ class HistogramSSH(AnalysisTask):
 
         self.run_after(mpasClimatologyTask)
         self.mpasClimatologyTask = mpasClimatologyTask
-        #TODO call function to mpasClimatologyTask to specify variable to compute clim
 
         #self.histogramFileName = ''
         self.controlConfig = controlConfig
@@ -118,21 +117,21 @@ class HistogramSSH(AnalysisTask):
         config = self.config
 
         mainRunName = config.get('runs', 'mainRunName')
-        #self.startYear = self.config.getint(self.taskName, 'startYear')
-        #self.endYear = self.config.getint(self.taskName, 'endYear')
         regionGroups = config.getexpression(self.taskName, 'regionGroups')
 
         self.seasons = config.getexpression(self.taskName, 'seasons')
+        #TODO add to config file
+        #self.variableList = config.getexpression(self.taskName, 'variableList')
+        self.variableList = ['timeMonthly_avg_ssh']
 
-
+        # Add xml file names for each season
         self.xmlFileNames = []
-
-        self.filePrefix = 'ssh_histogram_{}'.format(mainRunName)
+        self.filePrefix = f'ssh_histogram_{mainRunName}'
         for season in self.seasons:
             self.xmlFileNames.append(f'{self.plotsDirectory}/{self.filePrefix}_{season}.xml')
 
-        variableList = ['timeMonthly_avg_ssh']
-        self.mpasClimatologyTask.add_variables(variableList=variableList,
+        # Specify variables and seasons to compute climology over
+        self.mpasClimatologyTask.add_variables(variableList=self.variableList,
                                                seasons=self.seasons)
 
     def run_task(self):
@@ -217,8 +216,8 @@ class HistogramSSH(AnalysisTask):
             else:
                 defaultFontSize = None
 
-            yLabel = None
-            xLabel = None
+            yLabel = 'normalized Probability Density Function'
+            xLabel = f"{ds.ssh.attrs['long_name']} ({ds.ssh.attrs['units']})"
 
             histogram_analysis_plot(config, fields, calendar=calendar,
                                     title=title, xlabel=xLabel, ylabel=yLabel,
