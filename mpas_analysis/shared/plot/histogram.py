@@ -32,7 +32,7 @@ def histogram_analysis_plot(config, dsvalues, calendar, title, xlabel, ylabel,
                             density=True, lineColors=None,
                             lineStyles=None, markers=None, lineWidths=None,
                             legendText=None,
-                            titleFontSize=None, defaultFontSize=None,
+                            titleFontSize=None, axisFontSize=None, defaultFontSize=None,
                             figsize=(12, 6), dpi=None,
                             legendLocation='upper right',
                             maxTitleLength=90):
@@ -107,8 +107,24 @@ def histogram_analysis_plot(config, dsvalues, calendar, title, xlabel, ylabel,
         dpi = config.getint('plot', 'dpi')
 
     fig = plt.figure(figsize=figsize, dpi=dpi)
-    ax = plt.gca()
+    #TODO ensure that this is appropriate for this plot type
+    if title is not None:
+        if titleFontSize is None:
+            titleFontSize = config.get('plot', 'threePanelTitleFontSize')
+        title_font = {'size': titleFontSize,
+                      'color': config.get('plot', 'threePanelTitleFontColor'),
+                      'weight': config.get('plot',
+                                           'threePanelTitleFontWeight')}
+    #    suptitle = fig.suptitle(title, y=0.99, **title_font)
+    #else:
+    #    suptitle = None
+    if axisFontSize is None:
+        axisFontSize = config.get('plot', 'axisFontSize')
+    axis_font = {'size': axisFontSize}
 
+
+    ax = plt.gca()
+    labelCount = 0
     for dsIndex in range(len(dsvalues)):
         dsvalue = dsvalues[dsIndex]
         if dsvalue is None:
@@ -142,8 +158,8 @@ def histogram_analysis_plot(config, dsvalues, calendar, title, xlabel, ylabel,
         # TODO read hist_bins from a config file
         hist_bins = 20
         hist_values = dsvalue.values.ravel()
-        print(f'shape(dsvalue)={numpy.shape(dsvalue.values)}')
-        print(f'shape(hist_values)={numpy.shape(hist_values)}')
+        print(f'shape(dsvalue)={np.shape(dsvalue.values)}')
+        print(f'shape(hist_values)={np.shape(hist_values)}')
         hist_type = 'step'
         ax.hist(hist_values, range=hist_val_range, bins=hist_bins,
                 linestyle=linestyle, linewidth=linewidth,

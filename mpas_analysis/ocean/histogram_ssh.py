@@ -11,6 +11,7 @@
 # https://raw.githubusercontent.com/MPAS-Dev/MPAS-Analysis/master/LICENSE
 #
 import os
+import xarray
 import numpy
 import matplotlib.pyplot as plt
 
@@ -18,9 +19,8 @@ from mpas_analysis.shared import AnalysisTask
 
 from mpas_analysis.shared.io import open_mpas_dataset
 from mpas_analysis.shared.io.utility import build_config_full_path
-from mpas_analysis.shared.climatology import compute_climatology#, \
-#    get_unmasked_mpas_climatology_file_name, \
-#    get_masked_mpas_climatology_file_name
+from mpas_analysis.shared.climatology import compute_climatology, \
+    get_unmasked_mpas_climatology_file_name
 
 from mpas_analysis.shared.constants import constants
 from mpas_analysis.shared.plot import histogram_analysis_plot, savefig
@@ -84,10 +84,12 @@ class HistogramSSH(AnalysisTask):
 
         self.run_after(mpasClimatologyTask)
         self.mpasClimatologyTask = mpasClimatologyTask
+        #TODO call function to mpasClimatologyTask to specify variable to compute clim
 
         #self.histogramFileName = ''
         self.controlConfig = controlConfig
-        self.filePrefix = None
+        #TODO make the filePrefix reflect the regionGroup and regionName
+        self.filePrefix = 'histogram_ssh'
 
         self.variableDict = {}
         for var in ['ssh']:
@@ -116,8 +118,8 @@ class HistogramSSH(AnalysisTask):
         config = self.config
 
         mainRunName = config.get('runs', 'mainRunName')
-        self.startYear = self.config.getint(self.taskName, 'startYear')
-        self.endYear = self.config.getint(self.taskName, 'endYear')
+        #self.startYear = self.config.getint(self.taskName, 'startYear')
+        #self.endYear = self.config.getint(self.taskName, 'endYear')
         regionGroups = config.getexpression(self.taskName, 'regionGroups')
 
         self.seasons = config.getexpression(self.taskName, 'seasons')
@@ -126,8 +128,12 @@ class HistogramSSH(AnalysisTask):
         self.xmlFileNames = []
 
         self.filePrefix = 'ssh_histogram_{}'.format(mainRunName)
-        self.xmlFileNames.append('{}/{}.xml'.format(self.plotsDirectory,
-                                                    self.filePrefix))
+        for season in self.seasons:
+            self.xmlFileNames.append(f'{self.plotsDirectory}/{self.filePrefix}_{season}.xml')
+
+        variableList = ['timeMonthly_avg_ssh']
+        self.mpasClimatologyTask.add_variables(variableList=variableList,
+                                               seasons=self.seasons)
 
     def run_task(self):
         """
@@ -144,8 +150,8 @@ class HistogramSSH(AnalysisTask):
         calendar = self.calendar
         seasons = self.seasons
 
-        startYear = self.startYear
-        endYear = self.endYear
+        #startYear = self.startYear
+        #endYear = self.endYear
         #TODO determine whether this is needed
         #startDate = '{:04d}-01-01_00:00:00'.format(self.startYear)
         #endDate = '{:04d}-12-31_23:59:59'.format(self.endYear)
@@ -161,30 +167,34 @@ class HistogramSSH(AnalysisTask):
 
         # the variable mpasFieldName will be added to mpasClimatologyTask
         # along with the seasons.
+        try:
+            restartFileName = self.runStreams.readpath('restart')[0]
+        except ValueError:
+            raise IOError('No MPAS-O restart file found: need at least one'
+                          ' restart file to plot T-S diagrams')
+        #dsRestart = xarray.open_dataset(restartFileName)
+        #dsRestart = dsRestart.isel(Time=0)
 
         for season in seasons:
-            outputFileName = \
-                '{}/{}_{}_{:04d}-{:04d}.nc'.format(
-                    baseDirectory, 'histogramSSH', season,
-                    startYear, endYear)
-            outFileName = f'{baseDirectory}/{self.filePrefix}_{season}_{startYear}-{endYear}'
-            #outFileName = f'{self.plotsDirectory}/{self.filePrefix}_{season}_{startYear}-{endYear}'
-            if not os.path.exists(outputFileName):
-                monthValues = constants.monthDictionary[season]
-                dsSeason = compute_climatology(ds, monthValues, calendar, maskVaries=False)
-                write_netcdf(dsSeason, outputFileName)
-            ds = open_mpas_dataset(fileName=outputFileName,
-                                   calendar=calendar,
-                                   variableList=variableList,
-                                   timeVariableNames=None)
-            #TODO
-            #ds = _multiply_ssh_by_area(ds)
+            #TODO get the filename of the climatology file from the climatology task
+            #TODO determine whether this is actually histogramSSH
+            #TODO make sure that the climatology spans the appropriate years
+            inFileName = get_unmasked_mpas_climatology_file_name(
+                config, season, self.componentName, op='avg')
+            # Use xarray to open climatology dataset
+            ds = xarray.open_dataset(inFileName)
+            ds = self._multiply_ssh_by_area(ds)
 
             #TODO add region specification
             #ds.isel(nRegions=self.regionIndex))
 
             fields = [ds[variableList[0]]]
-            #lineColors = [config.get('histogram', 'mainColor')]
+            #TODO add depth masking
+
+            if config.has_option('histogramSSH', 'lineColors'):
+                lineColors = [config.get('histogramSSH', 'mainColor')]
+            else:
+                lineColors = None
             lineWidths = [3]
             legendText = [mainRunName]
             #TODO add later
@@ -193,6 +203,8 @@ class HistogramSSH(AnalysisTask):
             #    lineColors.append(config.get('histogram', 'controlColor'))
             #    lineWidths.append(1.2)
             #    legendText.append(controlRunName)
+            #TODO make title more informative
+            title = mainRunName
             if config.has_option('histogramSSH', 'titleFontSize'):
                 titleFontSize = config.getint('histogramSSH',
                                               'titleFontSize')
@@ -205,20 +217,25 @@ class HistogramSSH(AnalysisTask):
             else:
                 defaultFontSize = None
 
-
+            yLabel = None
+            xLabel = None
 
             histogram_analysis_plot(config, fields, calendar=calendar,
                                     title=title, xlabel=xLabel, ylabel=yLabel,
-                                    lineColors=lineColors,
-                                    lineWidths=lineWidths, legendText=legendText, titleFontSize=titleFontSize, defaultFontSize=defaultFontSize)
+                                    lineColors=lineColors, lineWidths=lineWidths,
+                                    legendText=legendText,
+                                    titleFontSize=titleFontSize, defaultFontSize=defaultFontSize)
 
+            #TODO whether this should be plotsDirectory or baseDirectory
+            outFileName = f'{self.plotsDirectory}/{self.filePrefix}_{season}.png'
+            print(f'outFileName={outFileName}')
             savefig(outFileName, config)
 
             #TODO should this be in the outer loop instead?
             caption = 'Normalized probability density function for SSH climatologies in the {} Region'.format(title)
             write_image_xml(
                 config=config,
-                filePrefix=filePrefix,
+                filePrefix=f'{self.filePrefix}_{season}',
                 componentName='Ocean',
                 componentSubdirectory='ocean',
                 galleryGroup='Histograms',
@@ -229,29 +246,28 @@ class HistogramSSH(AnalysisTask):
                 imageCaption=caption)
 
 
-#    def _multiply_ssh_by_area(self, ds):
-#
-#        """
-#        Compute a time series of the global mean water-column thickness.
-#        """
-#
-#        #TODO have not yet resolved whether we need mpasHistogramTask
-#        restartFileName = \
-#            mpasHistogramTask.runStreams.readpath('restart')[0]
-#
-#        dsRestart = xarray.open_dataset(restartFileName)
-#
-#        #TODO load seaIceArea for sea ice histograms
-#        #landIceFraction = dsRestart.landIceFraction.isel(Time=0)
-#        areaCell = dsRestart.areaCell
-#
-#        # for convenience, rename the variables to simpler, shorter names
-#        ds = ds.rename(self.variableDict)
-#
-#        ds['sshAreaCell'] = \
-#            ds['ssh'] / areaCell
-#        ds.sshAreaCell.attrs['units'] = 'm^2'
-#        ds.sshAreaCell.attrs['description'] = \
-#            'Sea-surface height multiplied by the cell area'
-#
-#        return ds
+    def _multiply_ssh_by_area(self, ds):
+
+        """
+        Compute a time series of the global mean water-column thickness.
+        """
+
+        restartFileName = self.runStreams.readpath('restart')[0]
+
+        dsRestart = xarray.open_dataset(restartFileName)
+        dsRestart = dsRestart.isel(Time=0)
+
+        #TODO load seaIceArea for sea ice histograms
+        #landIceFraction = dsRestart.landIceFraction.isel(Time=0)
+        areaCell = dsRestart.areaCell
+
+        # for convenience, rename the variables to simpler, shorter names
+        ds = ds.rename(self.variableDict)
+
+        ds['sshAreaCell'] = \
+            ds['ssh'] / areaCell
+        ds.sshAreaCell.attrs['units'] = 'm^2'
+        ds.sshAreaCell.attrs['description'] = \
+            'Sea-surface height multiplied by the cell area'
+
+        return ds
