@@ -149,12 +149,6 @@ class OceanHistogram(AnalysisTask):
         calendar = self.calendar
         seasons = self.seasons
 
-        #startYear = self.startYear
-        #endYear = self.endYear
-        #TODO determine whether this is needed
-        #startDate = '{:04d}-01-01_00:00:00'.format(self.startYear)
-        #endDate = '{:04d}-12-31_23:59:59'.format(self.endYear)
-
         mainRunName = config.get('runs', 'mainRunName')
 
         baseDirectory = build_config_full_path(
@@ -169,12 +163,8 @@ class OceanHistogram(AnalysisTask):
         except ValueError:
             raise IOError('No MPAS-O restart file found: need at least one'
                           ' restart file to plot T-S diagrams')
-        #dsRestart = xarray.open_dataset(restartFileName)
-        #dsRestart = dsRestart.isel(Time=0)
 
         for season in seasons:
-            #TODO get the filename of the climatology file from the climatology task
-            #TODO make sure that the climatology spans the appropriate years
             inFileName = get_unmasked_mpas_climatology_file_name(
                 config, season, self.componentName, op='avg')
             # Use xarray to open climatology dataset
@@ -208,7 +198,7 @@ class OceanHistogram(AnalysisTask):
             for var in self.variableList:
 
                 fields = [ds[var]]
-                #TODO add depth masking
+                #Note: if we want to support 3-d variable histograms, we need to add depth masking
 
                 #TODO add later
                 #if plotControl:
@@ -225,9 +215,7 @@ class OceanHistogram(AnalysisTask):
                                         legendText=legendText,
                                         titleFontSize=titleFontSize, defaultFontSize=defaultFontSize)
 
-                #TODO whether this should be plotsDirectory or baseDirectory
                 outFileName = f'{self.plotsDirectory}/{self.filePrefix}_{var}_{season}.png'
-                print(f'outFileName={outFileName}')
                 savefig(outFileName, config)
 
                 #TODO should this be in the outer loop instead?
@@ -245,7 +233,7 @@ class OceanHistogram(AnalysisTask):
                     imageCaption=caption)
 
 
-    def _multiply_var_by_area(self, ds, variableList):
+    def _multiply_var_by_area(self, ds, variableList, areaVarName='areaCell', fractionVarName=None):
 
         """
         Compute a time series of the global mean water-column thickness.
@@ -256,20 +244,18 @@ class OceanHistogram(AnalysisTask):
         dsRestart = xarray.open_dataset(restartFileName)
         dsRestart = dsRestart.isel(Time=0)
 
-        #TODO load seaIceArea for sea ice histograms
-        #landIceFraction = dsRestart.landIceFraction.isel(Time=0)
-        areaCell = dsRestart.areaCell
+        areaCell = dsRestart[areaVarName]
 
         # for convenience, rename the variables to simpler, shorter names
         ds = ds.rename(self.variableDict)
 
         for varName in variableList:
-            #varName = {i for i in self.variableDict if self.variableDict[i]==var}
-            varAreaName = f'{varName}AreaCell'
+            varAreaName = f'{varName}_{areaVarName}'
             ds[varAreaName] = ds[varName] / areaCell
+            if fractionVarName is not None:
+                frac = ds[fractionVarName]
+                ds[varAreaName] = ds[varName] * frac
             ds[varAreaName].attrs['units'] = 'm^2'
-            #ds.sshAreaCell.attrs['units'] = 'm^2'
-            #ds.sshAreaCell.attrs['description'] = \
             ds[varAreaName].attrs['description'] = \
                 f'{varName} multiplied by the cell area'
 
