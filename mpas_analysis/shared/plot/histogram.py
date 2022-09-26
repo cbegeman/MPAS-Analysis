@@ -119,8 +119,7 @@ def histogram_analysis_plot(config, dsvalues, calendar, title, xlabel, ylabel,
 
     ax = plt.gca()
     labelCount = 0
-    for dsIndex in range(len(dsvalues)):
-        dsvalue = dsvalues[dsIndex]
+    for dsIndex, dsvalue in enumerate(dsvalues):
         if dsvalue is None:
             continue
         if legendText is None:
