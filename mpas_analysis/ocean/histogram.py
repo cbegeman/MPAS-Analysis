@@ -186,12 +186,21 @@ class OceanHistogram(AnalysisTask):
                                               'titleFontSize')
             else:
                 titleFontSize = None
+            if config.has_option(self.taskName, 'titleFontSize'):
+                axisFontSize = config.getint(self.taskName,
+                                             'axisFontSize')
+            else:
+                axisFontSize = None
 
             if config.has_option(self.taskName, 'defaultFontSize'):
                 defaultFontSize = config.getint(self.taskName,
                                                 'defaultFontSize')
             else:
                 defaultFontSize = None
+            if config.has_option(self.taskName, 'bins'):
+                bins = config.getint(self.taskName, 'bins')
+            else:
+                bins = None
 
             yLabel = 'normalized Probability Density Function'
 
@@ -210,7 +219,7 @@ class OceanHistogram(AnalysisTask):
                 xLabel = f"{ds.ssh.attrs['long_name']} ({ds.ssh.attrs['units']})"
 
                 histogram_analysis_plot(config, fields, calendar=calendar,
-                                        title=title, xlabel=xLabel, ylabel=yLabel,
+                                        title=title, xlabel=xLabel, ylabel=yLabel, bins=bins,
                                         lineColors=lineColors, lineWidths=lineWidths,
                                         legendText=legendText,
                                         titleFontSize=titleFontSize, defaultFontSize=defaultFontSize)
