@@ -232,14 +232,16 @@ class ComputeHistogramWeightsSubtask(AnalysisTask):
         """
 
         config = self.config
+        base_directory = build_config_full_path(
+            config, 'output', 'histogramSubdirectory')
 
         # Get cell mask for the region
         region_mask_filename = self.mpasMasksSubtask.maskFileName
         ds_region_mask = xarray.open_dataset(region_mask_filename)
         mask_region_names = decode_strings(ds_region_mask.regionNames)
         region_index = mask_region_names.index(self.regionName)
-        ds_mask = dsRegionMask.isel(nRegions=region_index)
-        cell_mask = dsMask.regionCellMasks == 1
+        ds_mask = ds_region_mask.isel(nRegions=region_index)
+        cell_mask = ds_mask.regionCellMasks == 1
 
         # Open the restart file, which contains unmasked weight variables
         restart_filename = self.runStreams.readpath('restart')[0]
@@ -249,25 +251,23 @@ class ComputeHistogramWeightsSubtask(AnalysisTask):
         # Save the cell mask only for the region in its own file, which may be
         # referenced by future analysis (i.e., as a control run)
         new_region_mask_filename = \
-            f'{baseDirectory}/{self.filePrefix}_{self.regionName}_mask.nc'
-        write_netcdf(dsMask, new_region_mask_filename)
+            f'{base_directory}/{self.filePrefix}_{self.regionName}_mask.nc'
+        write_netcdf(ds_mask, new_region_mask_filename)
 
         ds_weights = xarray.Dataset()
         # Fetch the weight variables and mask them for each region
         for index, var in enumerate(self.variableList):
             weight_var_name = self.weightList[index]
-            if weight_var_name in dsRestart.keys():
+            if weight_var_name in ds_restart.keys():
                 var_name = f'timeMonthly_avg_{var}'
-                ds_weights[f'{varname}_weight'] = \
+                ds_weights[f'{var_name}_weight'] = \
                     ds_restart[weight_var_name].where(cell_mask, drop=True)
             else:
                 self.logger.warn(f'Weight variable {weight_var_name} is not in '
                                  f'the restart file, skipping')
 
-        base_directory = build_config_full_path(
-            config, 'output', 'histogramSubdirectory')
         weights_filename = \
-            f'{baseDirectory}/{self.filePrefix}_{self.regionName}_weights.nc'
+            f'{base_directory}/{self.filePrefix}_{self.regionName}_weights.nc'
         write_netcdf(ds_weights, weights_filename)
 
 
@@ -407,23 +407,17 @@ class PlotRegionHistogramSubtask(AnalysisTask):
 
         calendar = self.calendar
 
-        mainRunName = config.get('runs', 'mainRunName')
+        main_run_name = config.get('runs', 'mainRunName')
 
-        baseDirectory = build_config_full_path(
-            config, 'output', 'histogramSubdirectory')
+        region_mask_filename = self.mpasMasksSubtask.maskFileName
 
-        regionMaskFileName = self.mpasMasksSubtask.maskFileName
+        ds_region_mask = xarray.open_dataset(region_mask_filename)
 
-        dsRegionMask = xarray.open_dataset(regionMaskFileName)
+        mask_region_names = decode_strings(ds_region_mask.regionNames)
+        region_index = mask_region_names.index(self.regionName)
 
-        maskRegionNames = decode_strings(dsRegionMask.regionNames)
-        regionIndex = maskRegionNames.index(self.regionName)
-
-        dsMask = dsRegionMask.isel(nRegions=regionIndex)
-        cellMask = dsMask.regionCellMasks == 1
-
-        inFileName = get_unmasked_mpas_climatology_file_name(
-            config, self.season, self.componentName, op='avg')
+        ds_mask = ds_region_mask.isel(nRegions=region_index)
+        cell_mask = ds_mask.regionCellMasks == 1
 
         if len(self.obsDicts) > 0:
             obsRegionMaskFileName = self.obsMasksSubtask.maskFileName
@@ -434,14 +428,17 @@ class PlotRegionHistogramSubtask(AnalysisTask):
             dsObsMask = dsObsRegionMask.isel(nRegions=regionIndex)
             obsCellMask = dsObsMask.regionMasks == 1
 
-        ds = xarray.open_dataset(inFileName)
+        in_filename = get_unmasked_mpas_climatology_file_name(
+            config, self.season, self.componentName, op='avg')
+        ds = xarray.open_dataset(in_filename)
         ds = ds.where(cellMask, drop=True)
 
-        baseDirectory = build_config_full_path(
+        base_directory = build_config_full_path(
             config, 'output', 'histogramSubdirectory')
+
         if self.weightList is not None:
             weightsFileName = \
-                f'{baseDirectory}/{self.filePrefix}_{self.regionName}_' \
+                f'{base_directory}/{self.filePrefix}_{self.regionName}_' \
                 'weights.nc'
             dsWeights = xarray.open_dataset(weightsFileName)
 
@@ -450,16 +447,16 @@ class PlotRegionHistogramSubtask(AnalysisTask):
             controlFileName = get_unmasked_mpas_climatology_file_name(
                 self.controlConfig, self.season, self.componentName, op='avg')
             dsControl = xarray.open_dataset(controlFileName)
-            baseDirectory = build_config_full_path(
+            base_directory = build_config_full_path(
                 self.controlConfig, 'output', 'histogramSubdirectory')
-            controlRegionMaskFileName = f'{baseDirectory}/histogram_' \
+            controlRegionMaskFileName = f'{base_directory}/histogram_' \
                 f'{controlRunName}_{self.regionName}_mask.nc'
             dsControlRegionMasks = xarray.open_dataset(
                 controlRegionMaskFileName)
             controlCellMask = dsControlRegionMasks.regionCellMasks == 1
             if self.weightList is not None:
                 controlWeightsFileName = \
-                    f'{baseDirectory}/histogram_{controlRunName}_' \
+                    f'{base_directory}/histogram_{controlRunName}_' \
                     f'{self.regionName}_weights.nc'
                 dsControlWeights = xarray.open_dataset(controlWeightsFileName)
 
@@ -480,7 +477,7 @@ class PlotRegionHistogramSubtask(AnalysisTask):
         else:
             lineWidths = None
 
-        title = mainRunName
+        title = main_run_name
         if config.has_option(self.taskName, 'titleFontSize'):
             titleFontSize = config.getint(self.taskName,
                                           'titleFontSize')
