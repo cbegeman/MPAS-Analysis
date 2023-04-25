@@ -197,17 +197,21 @@ if __name__ == "__main__":
     # Directory where final output files will be written
     DATA_diro_FINAL= '/lcrc/group/acme/ac.cbegeman/wmt_MPASO/FINAL'
     
+    get_dens_bins_from_file = False
     # File containing density bin edges
     DATA_densBins = '/lcrc/group/acme/ac.benedict/forCarolyn/Rho.400.nc'
     
     # File containing region masks
     #   It is expected that the mask file uses the same horizontal grid as the run being
     #     analyzed, and that mask values are 1 within the region of interest and 0 otherwise.
-    MASK_file = "/lcrc/group/acme/ac.benedict/forCarolyn/EC30to60E2r2_North_Atlantic_Subpolar_v2.nc"
+    #MASK_file = "/lcrc/group/acme/ac.benedict/forCarolyn/EC30to60E2r2_North_Atlantic_Subpolar_v2.nc"
+    MASK_file = "/lcrc/group/e3sm/public_html/inputdata/ocn/mpas-o/EC30to60E2r2/EC30to60E2r2_oceanSubBasins20210315.nc"
 
     # Define region to analyze
-    regionNameUse = "Greenland Sea"  # if running via driver bash script:  example:  "Greenland Sea"   FIX:  This should be user input
-    regionNameTag = "Greenland"  # if running via driver bash script:  example:  "Greenland"
+    #regionNameUse = "Greenland Sea"  # if running via driver bash script:  example:  "Greenland Sea"   FIX:  This should be user input
+    #regionNameTag = "Greenland"  # if running via driver bash script:  example:  "Greenland"
+    regionNameUse = "Southern Ocean Basin"
+    regionNameTag = "SouthernOceanBasin"
 #    regionNameUse = getenv("REGIONNAMEUSE")  # if running via driver bash script:  example:  "Greenland Sea"
 #    regionNameTag = getenv("REGIONNAMETAG")  # if running via driver bash script:  example:  "Greenland"
     # ----------------------------------------------------------------------
@@ -272,11 +276,20 @@ if __name__ == "__main__":
     
     # -------    Defining density bin centers and edges    --------
     # Read file containing density bin edges
-    with xr.open_dataset(DATA_densBins) as ds_densBins:
-      print(f'Retrieving density bin information:  DATA_densBins: {DATA_densBins}')
-      densBinsEdges = ds_densBins['rho']
-      drho          = densBinsEdges[1:] - densBinsEdges[0:len(densBinsEdges)-1]
-      
+    if get_dens_bins_from_file:
+      with xr.open_dataset(DATA_densBins) as ds_densBins:
+        print(f'Retrieving density bin information:  DATA_densBins: {DATA_densBins}')
+        densBinsEdges = ds_densBins['rho']
+        
+    else:
+      dens_min = 1024.0
+      dens_max = 1028.4
+      rho_interval = 0.1
+      densBinsEdges = xr.DataArray(
+                      data=np.arange(dens_min, dens_max, rho_interval),
+                      dims=['lev'])
+
+    drho          = densBinsEdges[1:] - densBinsEdges[0:len(densBinsEdges)-1]
     # Create an array that contains densBinsCenters (bin centers)
     densBinsCenters = 0.5 * (densBinsEdges[0:-1] + densBinsEdges[1:])
     densBinsCenters = densBinsCenters.rename({'lev': 'bin'})
@@ -286,7 +299,6 @@ if __name__ == "__main__":
     densBinsEdgesOut = np.zeros( (len(densBinsCenters),2), dtype=type(densBinsCenters) )
     densBinsEdgesOut[:,0] = densBinsEdges[0:-1]
     densBinsEdgesOut[:,1] = densBinsEdges[1:]
-    
     print('\nDensity bin structure TEST PRINT:')
     print("%6s    %14s    | %14s %14s %14s    | %14s" % ("", "Bin low edge","Bin low edge","Bin center","Bin hi edge","Bin hi edge"))
     for i in range(len(densBinsCenters)):
@@ -371,7 +383,7 @@ if __name__ == "__main__":
             rivRof  = ds_in0["timeMonthly_avg_riverRunoffFlux"].isel(Time=0)      # Expected input is (Time, nCells)
             iceRof  = ds_in0["timeMonthly_avg_iceRunoffFlux"].isel(Time=0)        # Expected input is (Time, nCells)
             IO      = ds_in0["timeMonthly_avg_seaIceFreshWaterFlux"].isel(Time=0) # Expected input is (Time, nCells)
-            
+
             # Derived fields
             brine = iceRof.where(iceRof < 0., other=0.)  # confirmed that this preserves metadata
             melt = iceRof.where(iceRof > 0., other=0.)
@@ -392,7 +404,13 @@ if __name__ == "__main__":
             snow   = snow.where(regCellMask == 1, drop=True)
             rivRof = rivRof.where(regCellMask == 1, drop=True)
             iceRof = iceRof.where(regCellMask == 1, drop=True)
-            
+            if "timeMonthly_avg_landIceFreshwaterFlux" in ds_in0.keys():
+                ISMF = ds_in0["timeMonthly_avg_landIceFreshwaterFlux"].isel(Time=0) # Expected input is (Time, nCells)
+                print('ISMF found:', np.shape(ISMF.values)) 
+                ISMF = edit_attrs_apply_regionMask(ISMF, regCellMask, 'ISMF', 'ISMF')
+                ISMF = ISMF.where(regCellMask == 1, drop=True)
+            else:
+                ISMF = xr.zeros_like(IO)
             
             # ---  Write masked data to intermediate file  ---------------------------------
             
@@ -416,6 +434,7 @@ if __name__ == "__main__":
             #Freshwater fluxes
             dsOut['brine'] = brine
             dsOut['melt'] = melt
+            dsOut['ISMF'] = ISMF
             dsOut['IO_FWflux'] = IO
             dsOut['AO_FWflux'] = AO
             dsOut['IOAO_FWflux'] = IOAO
@@ -469,7 +488,7 @@ if __name__ == "__main__":
             dsOutDens = xr.Dataset()
             
             # Compute salinity terms   FIX: have oceanographer define long_names for these terms?
-            for varName in ['IO_FWflux','brine','melt','AO_FWflux','IOAO_FWflux','evap','rain','snow','rivRof','iceRof' ]:
+            for varName in ['IO_FWflux','brine','melt','ISMF','AO_FWflux','IOAO_FWflux','evap','rain','snow','rivRof','iceRof' ]:
                 dsOutDens[f'dens_{varName}'] = salt_factor * dsIn[varName]
             
             # Compute temperature terms   FIX: have oceanographer define long_names for these terms?
@@ -591,8 +610,8 @@ if __name__ == "__main__":
         
           
         # Write (12,399,2) data to file
-        dsOuter.to_netcdf(path=f'{DATA_diro_FINAL}/{caseName}.MPASO.densityBinnedFields.{YYYY}.nc')
-        print(f'\nSaving FINAL file: {DATA_diro_FINAL}/{caseName}.MPASO.densityBinnedFields.{YYYY}.nc')
+        dsOuter.to_netcdf(path=f'{DATA_diro_FINAL}/{caseName}.{regionNameTag}.MPASO.densityBinnedFields.{YYYY}.nc')
+        print(f'\nSaving FINAL file: {DATA_diro_FINAL}/{caseName}.{regionNameTag}.MPASO.densityBinnedFields.{YYYY}.nc')
         dsOut.close()    
     
     # --------------------------      
