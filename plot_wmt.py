@@ -10,24 +10,32 @@ if __name__ == "__main__":
     DATA_diro_FINAL= '/lcrc/group/acme/ac.cbegeman/wmt_MPASO/FINAL'
     regionName = "SouthernOceanBasin"
     filenames = glob.glob(f'{DATA_diro_FINAL}/*{regionName}*densityBinnedFields*.nc')
-    with xr.open_dataset(filenames[0]) as ds:
+    with xr.open_dataset(filenames[0]) as dsMesh:
        # The density bins are constant in time so we only need to load one
-       bin_centers = ds.densBinsCenters.isel(time=0)
-       densBinsEdges = ds.densBinsEdges.isel(time=0)
+       bin_centers = dsMesh.densBinsCenters.isel(time=0)
+       densBinsEdges = dsMesh.densBinsEdges.isel(time=0)
        densBinsEdge0 = densBinsEdges.isel(bnds=0)
        densBinsEdge1 = densBinsEdges.isel(bnds=1)
        dens_bnds = np.concatenate([densBinsEdge0.values, [densBinsEdge1.values[-1]]]) 
 
-       dens_iceRof_by_year = ds.dens_iceRof.expand_dims(dim='year', axis=0)
+       dens_iceRof_by_year = dsMesh.dens_iceRof.expand_dims(dim='year', axis=0)
 
-    for filename in filenames[1:]:
+    ds = xr.Dataset()
+    data_vars = ['dens_IOAO_FWflux', 'dens_hap']
+    for filename in filenames:
        with xr.open_dataset(filename) as ds_single:
            dens_iceRof_single = ds_single.dens_iceRof
            dens_iceRof_new = dens_iceRof_single.expand_dims(dim='year', axis=0)
            dens_iceRof_by_year = xr.concat([dens_iceRof_by_year, dens_iceRof_new], dim='year', join='override') 
-           print(np.shape(dens_iceRof_by_year.values))
-           ds = xr.concat([ds, ds_single], dim='time', data_vars='minimal',
-                          coords='minimal')
+           #ds = xr.concat([ds, ds_single], dim='time', data_vars='minimal',
+           #               coords='minimal')
+           for data_var in data_vars:
+               if data_var in ds.keys():
+                   ds = xr.concat([ds, ds_single], dim='time',
+                                  data_vars={data_var},
+                                  coords='minimal')
+               else:
+                   ds[data_var] = ds_single[data_var]
 
     time = ds.time
 
