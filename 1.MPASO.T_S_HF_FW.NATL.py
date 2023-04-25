@@ -36,8 +36,10 @@ def edit_attrs_apply_regionMask(x, x_mask, x_name=None, x_longname=None):
 def eosstat_surface_rho_drhodt_drhods(t, s):
 
     """
-    Compute density (rho), and density change per unit time (drhodt),
+    Compute density (rho), and density change per unit temperature (drhodt),
     and density change per unit salinity (drhods).
+
+    This is a copy of the ocn_equation_of_state_jm_density_exp subroutine
     """
 
     # FIX:  Use Gibbs saltwater package?  Discuss this.  Put in MPAS-tools?
