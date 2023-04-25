@@ -120,7 +120,7 @@ def wmt_yearly_plot(config, dsBins, dsValues,
     # get density variables from datasets
     if mode == 'cumulative':
         data_vars = ['dens_IOAO_FWflux', 'dens_hap']
-    else if mode == 'decomp':
+    elif mode == 'decomp':
         data_vars = ['dens_AO_FWflux', 'dens_rivRof', 'dens_ISMF', 'dens_melt',
                      'dens_brine', 'dens_iceRof']
     else:
@@ -159,7 +159,7 @@ def wmt_yearly_plot(config, dsBins, dsValues,
             lineColors = [TODO]
         if legendText is None or len(legendText) != len(data_vars):
             legendText = [TODO]
-    else if mode == 'decomp':
+    elif mode == 'decomp':
         ds['dens_EPR'] = ds.dens_AO_FWflux + ds.dens_rivRof
         data_vars.append = 'dens_EPR'
         if lineColors is None or len(lineColors) != len(data_vars):

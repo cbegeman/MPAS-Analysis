@@ -9,6 +9,8 @@ from mpas_analysis.shared.plot.vertical_section import \
 
 from mpas_analysis.shared.plot.histogram import histogram_analysis_plot
 
+from mpas_analysis.shared.plot.wmt import wmt_yearly_plot
+
 from mpas_analysis.shared.plot.oned import plot_1D
 
 from mpas_analysis.shared.plot.save import savefig
