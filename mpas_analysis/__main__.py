@@ -742,7 +742,7 @@ def purge_output(config):
     else:
         for subdirectory in ['plots', 'logs', 'mpasClimatology', 'mapping',
                              'timeSeries', 'html', 'mask', 'profiles',
-                             'histogram']:
+                             'histogram', 'wmt']:
             option = '{}Subdirectory'.format(subdirectory)
             directory = build_config_full_path(
                 config=config, section='output',
