@@ -208,6 +208,9 @@ def build_analysis_list(config, controlConfig):
                                         controlConfig))
     analyses.append(ocean.TimeSeriesTransport(config, controlConfig))
 
+    analyses.append(ocean.OceanWMT(config,
+                                   oceanRegionMasksTask,
+                                   controlConfig))
     analyses.append(ocean.OceanHistogram(config, oceanClimatologyTasks['avg'],
                                          oceanRegionMasksTask,
                                          controlConfig))
