@@ -195,4 +195,4 @@ def wmt_yearly_plot(config, dsBins, dsValues,
     plt.ylabel(yLabel, **axis_font)
     plt.legend(loc=LegendLocation)
 
-    return fig 
+    return fig
