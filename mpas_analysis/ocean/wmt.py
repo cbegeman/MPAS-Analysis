@@ -80,10 +80,16 @@ class OceanWMT(AnalysisTask):
 
             for regionName in regionNames:
                 # Generate histogram plots
+                # TODO computeRegionSubtask = ComputeRegionWmtSubtask(...
+                # computeRegionSubtask.run_after(mpasMasksSubtask)
+                # TODO ClimoRegionSubtask (optional)
+                # -- takes flux variables with dimensions (nCellsRegion, nTime, nBins) and performs mean over Time to collapse that dimension
+                # -- this is only useful if we want to be able to plot the WMT map for a given density class
+                # climoRegionSubtask.run_after(computeRegionSubtask)
                 plotRegionSubtask = PlotRegionWmtSubtask(
                     self, regionGroup, regionName, controlConfig,
                     sectionName, filePrefix, mpasMasksSubtask)
-                plotRegionSubtask.run_after(mpasMasksSubtask)
+                plotRegionSubtask.run_after(computeRegionSubtask)
                 self.add_subtask(plotRegionSubtask)
 
     def setup_and_check(self):
@@ -101,6 +107,29 @@ class OceanWMT(AnalysisTask):
         #   self.calendar
         super().setup_and_check()
 
+class ComputeRegionWmtSubtask(AnalysisTask):
+    """
+    Computes density bin masks for each time in range from T,S for a particular region
+    Fetches all flux variables for that region for each time in range
+    Applies density bin masks to each flux variable
+    (a) Saves a netcdf file for each region with masked flux variables with dimensions (nCellsRegion, nTime, nBins)
+        and density bin variables with dimensions (nBins)
+    or
+    (b) Takes flux variables with dimensions (nCellsRegion, nTime, nBins)
+        and performs mean over Time to collapse that dimension
+        then save that to a netcdf file
+    """
+    # Loop over time
+    #    Compute density from T,S
+    #    Loop over density bins
+    #       Compute density bin mask
+    #       Loop over flux variables
+    #          Apply density bin mask to flux variable
+    # Loop over density bins
+    #    Loop over flux variables
+    #        apply time averaging
+    #        save netcdf
+    
 class PlotRegionWmtSubtask(AnalysisTask):
     """
     Plots a histogram diagram for a given ocean region
@@ -210,15 +239,20 @@ class PlotRegionWmtSubtask(AnalysisTask):
         base_directory = build_config_full_path(
             config, 'output', 'wmtSubdirectory')
 
-        filenames = glob.glob(
-                f'{base_directory}/{self.filePrefix}_{self.regionName}_*' \
-                'wmt.nc')
+        # This bit of code assumes we are saving separate files for each year
+        # filenames = glob.glob(
+        #         f'{base_directory}/{self.filePrefix}_{self.regionName}_*' \
+        #         'wmt.nc')
 
-        ds_bins = filenames[0]
-        ds_values = []
-        for filename in filenames:
-            with xr.open_dataset(filename) as ds:
-                ds_values.append(ds)
+        # ds_bins = filenames[0]
+        # ds_values = []
+        # for filename in filenames:
+        #     with xr.open_dataset(filename) as ds:
+        #         ds_values.append(ds)
+
+        # TODO
+        # open single file corresponding to the region and whole time window considered
+        # average over nCellsRegion to get ds_values
 
         wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
         file_prefix = f'{self.filePrefix}_' \
