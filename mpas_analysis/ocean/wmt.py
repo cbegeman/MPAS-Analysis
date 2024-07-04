@@ -119,7 +119,17 @@ class ComputeRegionWmtSubtask(AnalysisTask):
         and performs mean over Time to collapse that dimension
         then save that to a netcdf file
     """
-
+    # Loop over time
+    #    Compute density from T,S
+    #    Loop over density bins
+    #       Compute density bin mask
+    #       Loop over flux variables
+    #          Apply density bin mask to flux variable
+    # Loop over density bins
+    #    Loop over flux variables
+    #        apply time averaging
+    #        save netcdf
+    
 class PlotRegionWmtSubtask(AnalysisTask):
     """
     Plots a histogram diagram for a given ocean region
@@ -241,8 +251,8 @@ class PlotRegionWmtSubtask(AnalysisTask):
         #         ds_values.append(ds)
 
         # TODO
-        # open single file corresponding to the region
-        # average over time axis to get ds_values
+        # open single file corresponding to the region and whole time window considered
+        # average over nCellsRegion to get ds_values
 
         wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
         file_prefix = f'{self.filePrefix}_' \
