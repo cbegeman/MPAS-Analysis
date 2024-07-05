@@ -62,12 +62,36 @@ class OceanWMT(AnalysisTask):
 
         self.regionGroups = config.getexpression(self.taskName, 'regionGroups')
         self.regionNames = config.getexpression(self.taskName, 'regionNames')
+        self.startYear = config.getint(self.taskName, 'startYear')
+        self.endYear = config.getint(self.taskName, 'endYear')
+        self.seasons = config.getexpression(sectionName, 'seasons')
+
+        if controlConfig is not None:
+            controlRunName = controlConfig.get('runs', 'mainRunName')
+            galleryName = None
+            refTitleLabel = 'Control: {}'.format(controlRunName)
+            outFileLabel = 'wmt'
+            diffTitleLabel = 'Main - Control'
 
         baseDirectory = build_config_full_path(
             config, 'output', 'wmtSubdirectory')
         if not os.path.exists(baseDirectory):
             make_directories(baseDirectory)
 
+        self.startDate = '{:04d}-01-01_00:00:00'.format(self.startYear)
+        self.endDate = '{:04d}-12-31_23:59:59'.format(self.endYear)
+        self.streamName = 'timeSeriesStatsMonthlyOutput'
+
+        # get a list of timeSeriesSta output files from the streams file,
+        # reading only those that are between the start and end dates
+        self.inputFiles = self.historyStreams.readpath(
+            self.streamName, startDate=self.startDate, endDate=self.endDate,
+            calendar=self.calendar)
+
+        if len(self.inputFiles) == 0:
+            raise IOError('No files were found in stream {} between {} and '
+                          '{}.'.format(self.streamName, self.startDate,
+                                       self.endDate))
         for regionGroup in self.regionGroups:
             groupObsDicts = {}
             mpasMasksSubtask = regionMasksTask.add_mask_subtask(
@@ -119,8 +143,11 @@ class ComputeRegionWmtSubtask(AnalysisTask):
         and performs mean over Time to collapse that dimension
         then save that to a netcdf file
     """
+    mpasFieldName = 'timeMonthly_avg_activeTracers_potentialDensity'
+    iselValues = {'nVertLevels': 0}
     # Loop over time
     #    Compute density from T,S
+
     #    Loop over density bins
     #       Compute density bin mask
     #       Loop over flux variables
