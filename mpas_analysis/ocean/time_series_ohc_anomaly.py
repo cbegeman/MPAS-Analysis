@@ -76,16 +76,20 @@ class TimeSeriesOHCAnomaly(AnalysisTask):
 
         timeSeriesFileName = 'regionAveragedOHCAnomaly.nc'
 
-        anomalyTask = ComputeAnomalySubtask(
-            parentTask=self,
-            mpasTimeSeriesTask=mpasTimeSeriesTask,
-            outFileName=timeSeriesFileName,
-            variableList=list(self.variableDict.keys()),
-            movingAveragePoints=movingAveragePoints,
-            alter_dataset=self._compute_ohc)
-        self.add_subtask(anomalyTask)
-
         for regionName in regionNames:
+            timeSeriesTask = TimeSeriesOceanRegions(config, regionMasksTask, controlConfig=None):
+            timeSeriesTask.run_after(regionMasksTask)
+
+            anomalyTask = ComputeAnomalySubtask(
+                parentTask=self,
+                mpasTimeSeriesTask=mpasTimeSeriesTask,
+                outFileName=timeSeriesFileName,
+                variableList=list(self.variableDict.keys()),
+                movingAveragePoints=movingAveragePoints,
+                alter_dataset=self._compute_ohc)
+            self.add_subtask(anomalyTask)
+            anomalyTask.run_after(timeSeriesTask)
+
             caption = 'Trend of {} OHC Anomaly vs depth'.format(
                 regionName)
             plotTask = PlotHovmollerSubtask(
@@ -134,8 +138,9 @@ class TimeSeriesOHCAnomaly(AnalysisTask):
         Compute the OHC time series.
         """
 
-        # regionNames = self.config.getexpression('regions', 'regions')
-        # ds['regionNames'] = ('nOceanRegionsTmp', regionNames)
+        regionNames = self.config.getexpression('regions', 'regions')
+        print(ds.sizes)
+        ds['regionNames'] = ('nOceanRegionsTmp', regionNames)
 
         # for convenience, rename the variables to simpler, shorter names
         ds = ds.rename(self.variableDict)
