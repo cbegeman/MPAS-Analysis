@@ -11,11 +11,11 @@
 # https://raw.githubusercontent.com/MPAS-Dev/MPAS-Analysis/main/LICENSE
 #
 import os
-from fastjmd95 import rho, drhodt, drhods
 import glob
 import xarray
 import numpy
 import matplotlib.pyplot as plt
+from .jmd95wrapper import rho, drhodt, drhods
 
 from mpas_analysis.shared import AnalysisTask
 
@@ -61,8 +61,9 @@ class OceanWMT(AnalysisTask):
         self.controlConfig = controlConfig
         mainRunName = config.get('runs', 'mainRunName')
 
-        self.regionGroups = config.getexpression(self.taskName, 'regionGroups')
-        self.regionNames = config.getexpression(self.taskName, 'regionNames')
+        sectionName = self.taskName
+        self.regionGroups = config.getexpression(sectionName, 'regionGroups')
+        self.regionNames = config.getexpression(sectionName, 'regionNames')
 
         startYear = config.getint(self.taskName, 'startYear')
         endYear = config.getint(self.taskName, 'endYear')
@@ -89,20 +90,24 @@ class OceanWMT(AnalysisTask):
                 regionGroup=regionGroup)
             regionNames = mpasMasksSubtask.expand_region_names(
                 self.regionNames)
+            print(f'init maskFileName as {mpasMasksSubtask.maskFileName}')
 
             # run one compute and one plot subtask per region name per year
             # TODO is there a problem with multiple tasks corresponding to different regions accessing the same timeMonthly files?
-            for regionName in regionNames:
+            # For now we run all regionNames in a region group together
+            # for regionName in regionNames:
 
                 # Generate wmt fields for each region
                 # -- The output of this is a saved dataset for each region and year
                 #    TODO consider if we really want to save every year or just accumulate the time average in one file (possibly for each season)
                 # -- The dataset has dimensions (nCellsRegion, nBins) with flux variables
+            for year in range(startYear, endYear + 1):
                 computeRegionSubtask = ComputeRegionWmtSubtask(
-                    self, regionGroup, regionName,
-                    startYear=startYear, endYear=endYear,
+                    self, regionGroup, regionNames,
+                    startYear=year, endYear=year,
                     masksSubtask=mpasMasksSubtask,
-                    densityBins=densityBins)
+                    densityBins=densityBins,
+                    fluxVariables=fluxVariables)
                 computeRegionSubtask.run_after(mpasMasksSubtask)
                 self.add_subtask(computeRegionSubtask)
 
@@ -112,11 +117,13 @@ class OceanWMT(AnalysisTask):
                 # -- this is only useful if we want to be able to plot the WMT map for a given density class
                 # climoRegionSubtask.run_after(computeRegionSubtask)
 
-                # Generate one figure of wmt vs. density for each region
+            # Generate one figure of wmt vs. density for each region
+            for regionName in self.regionNames:
                 # seasons not yet supported
                 plotRegionSubtask = PlotRegionWmtSubtask(
                     self, regionGroup, regionName, controlConfig,
-                    sectionName, filePrefix, mpasMasksSubtask)
+                    sectionName, mpasMasksSubtask,
+                    fluxVariables=fluxVariables)
                 plotRegionSubtask.run_after(computeRegionSubtask)
                 self.add_subtask(plotRegionSubtask)
 
@@ -148,7 +155,7 @@ class ComputeRegionWmtSubtask(AnalysisTask):
         and performs mean over Time to collapse that dimension
         then save that to a netcdf file
     """
-    def __init__(self, parentTask, regionGroup, regionName, startYear, endYear,
+    def __init__(self, parentTask, regionGroups, regionNames, startYear, endYear,
                  masksSubtask, densityBins, fluxVariables):
 
         super(ComputeRegionWmtSubtask, self).__init__(
@@ -156,15 +163,9 @@ class ComputeRegionWmtSubtask(AnalysisTask):
             taskName=parentTask.taskName,
             componentName=parentTask.componentName,
             tags=parentTask.tags,
-            subtaskName=f'computeWmt_{regionGroup}_{regionName}_'
-                        f'{startYear:04d}-{endYear:04d}')
+            subtaskName=f'computeWmt_{startYear:04d}-{endYear:04d}')
 
         self.masksSubtask = masksSubtask
-        regionGroupSuffix = regionGroup.replace(' ', '_')
-        regionNameSuffix = regionGroup.replace(' ', '_')
-        filePrefix = f'wmt_{regionGroupSuffix}_{regionNameSuffix}'
-
-        self.filePrefix = f'{filePrefix}_{startYear:04d}-{endYear:04d}'
         self.run_after(masksSubtask)
         self.startYear = startYear
         self.endYear = endYear
@@ -172,7 +173,8 @@ class ComputeRegionWmtSubtask(AnalysisTask):
         self.fluxVariables = fluxVariables
         self.startDate = f'{self.startYear:04d}-01-01_00:00:00'
         self.endDate = f'{self.endYear:04d}-12-31_23:59:59'
-        self.maskFileName = masksSubtask.maskFileName
+        self.regionGroups = regionGroups
+        self.regionNames = regionNames
 
     def setup_and_check(self):
         """
@@ -198,7 +200,8 @@ class ComputeRegionWmtSubtask(AnalysisTask):
                                        self.endDate))
 
         prefix = 'timeMonthly_avg'
-        self.variableList = [f'{prefix}_activeTracers_temperature',
+        self.variableList = ['Time', # 'xtime_startMonthly', 'xtime_endMonthly',
+                             f'{prefix}_activeTracers_temperature',
                              f'{prefix}_activeTracers_salinity']
         for variable in self.fluxVariables:
             self.variableList.append(f'{prefix}_{variable}')
@@ -209,68 +212,107 @@ class ComputeRegionWmtSubtask(AnalysisTask):
                       'nVertLevels': 0}
         surfacePressure = 0. # dbar
 
-        nBins = len(densityBins)
-
-        dsRegionMask = xarray.open_dataset(self.maskFileName)
-        maskRegionNames = decode_strings(dsRegionMask.regionNames)
-        regionIndex = maskRegionNames.index(self.regionName)
-        dsMask = dsRegionMask.isel(nRegions=regionIndex)
-        cellMask = dsMask.regionCellMasks == 1
+        nBins = len(self.densityBins) - 1
 
         # Loop over time by loading inputFiles
-        ds_out = xr.Dataset()
-        for inputFile in self.inputFiles:
+        ds_out = xarray.Dataset()
+        for fileCount, inputFile in enumerate(self.inputFiles):
 
+            print(inputFile)
             ds = open_mpas_dataset(fileName=inputFile,
                                    calendar=self.calendar,
                                    variableList=self.variableList,
                                    startDate=self.startDate,
                                    endDate=self.endDate)
-
+            year = self.startYear
             ds = ds.isel(iselValues)
 
-            # Downselect cells to those in the region
-            ds = ds.where(cellMask, drop=True)
-            nCells = ds.sizes('nCells')
+            for regionGroup in self.regionGroups:
+                regionGroupSuffix = regionGroup.replace(' ', '_')
+                output_filename = _get_regional_wmt_file_name(self.config, startYear=year, endYear=year)
 
-            ds_new = xr.Dataset()
-            ds_new['xTime_startMonthly'] = ds.xTime_startMonthly
-            ds_new['xTime_endMonthly'] = ds.xTime_endMonthly
+                maskFileName = self.masksSubtask.maskFileName
+                print(f'open {maskFileName}')
+                with xarray.open_dataset(maskFileName) as dsRegionMask:
+                    maskRegionNames = decode_strings(dsRegionMask.regionNames)
+                    regionIndices = []
+                    for regionName in self.regionNames:
+                        for index, otherName in enumerate(maskRegionNames):
+                            if regionName == otherName:
+                                regionIndices.append(index)
+                                break
 
-            # Compute density from T,S
-            prefix = 'timeMonthly_avg'
-            temperature = ds[f'{prefix}_activeTracers_temperature']
-            salinity = ds[f'{prefix}_activeTracers_salinity']
-            density = rho(salinity, temperature, surface_pressure)
+                # select only those regions we want to plot
+                dsRegionMask = dsRegionMask.isel(nRegions=regionIndices)
 
-            # Loop over density bins
-            for i, density_min in enumerate(densityBins):
+                nRegions = dsRegionMask.sizes['nRegions']
+                dsRegionGroup = xarray.Dataset()
+
+                datasets = []
+                for regionIndex in range(nRegions):
+                    regionName = self.regionNames[regionIndex]
+                    self.logger.info(f'    region: {regionName}')
+                    regionNameSuffix = regionName.replace(' ', '_')
+                    # Downselect cells to those in the region
+                    dsMask = dsRegionMask.isel(nRegions=regionIndex)
+                    cellMask = dsMask.regionCellMasks == 1
+                    # TODO consider open ocean masking here following time_series_ocean_regions
+                    ds = ds.where(cellMask, drop=True)
+                    print(ds.sizes)
+                    nCells = ds.sizes['nCells']
+
+                    ds_new = xarray.Dataset(
+                        data_vars=dict(
+                            regionNames=(["nRegions"], regionName),
+                            densityMask=(["Time", "nRegions", "nBins", "nCells"],
+                                         numpy.zeros((1, 1, nBins, nCells)))
+                        ),
+                        coords=dict(
+                            density_min=("nBins", self.densityBins[:-1]),
+                            density_max=("nBins", self.densityBins[1:]),
+                            Time=("Time", ds.Time.values)
+                            #xtime_startMonthly=("Time", ds.xtime_startMonthly),
+                            #xtime_endMonthly=("Time", ds.xtime_endMonthly)
+                        )
+                    )
+                    # Compute density from T,S
+                    prefix = 'timeMonthly_avg'
+                    temperature = ds[f'{prefix}_activeTracers_temperature']
+                    salinity = ds[f'{prefix}_activeTracers_salinity']
+                    density = rho(salinity, temperature, surface_pressure)
+
+                    # Loop over density bins
+                    for iBin in range(nBins):
         
-                density_max = densityBins[i+1]
-                # Compute density bin mask
-                density_mask = xr.logical_and(density >= density_min,
-                                              density < density_max) 
-                # Loop over flux variables
-                flux_masked = np.zeros((nBins, nCells))
-                for variable in self.fluxVariable:
-                    outputFile = f'{filePrefix}_{variable}'
+                        density_min = densityBins[iBin]
+                        density_max = densityBins[iBin + 1]
+                        # Compute density bin mask
+                        density_mask = xarray.logical_and(density >= density_min,
+                                                      density < density_max) 
 
-                    # Apply density bin mask to flux variable
-                    flux_masked[i, :] = ds[f'timeMonthly_avg_{variable}'].values * mask
-                    ds_new['timeMonthly_avg_{variable}'] = flux_masked
+                        ds_new['densityMask'][0, 0, :, :] = density_mask
 
-            ds_out = xr.concat([ds_out, ds_new], dim='Time')
+                    # Loop over flux variables
+                    for variable in self.fluxVariable:
+                        # Loop over density bins
+                        for iBin in range(nBins):
+                            # Apply density bin mask to flux variable
+                            flux_masked[iBin, :] = ds[f'timeMonthly_avg_{variable}'].values * mask
+                            # Make sure this is saved to the right region
 
-        # Note that we could save ds_out here if we wanted to have all the time slices, e.g.,
-        # for file_name in temp_files:
-        #     self.logger.info('  Deleting temp file {}'.format(file_name))
-        #     os.remove(file_name)
+                        ds_new['timeMonthly_avg_{variable}'][0, 0, :, :] = flux_masked
 
-        # We could also extract seasons here rather than time averaging over full period
+                    dsRegion = xarray.concat([dsRegion, ds_new], dim='Time')
+                    dsRegion.coords['regionNames'] = dsRegion['regionNames']
+                    print('dsRegion sizes = ',dsRegion.sizes)
 
-        # apply time averaging
-        ds_out = ds_out.mean(dim='Time')
-        write_netcdf_with_fill(ds, out_file_name)
+                datasets.append(dsRegion)
+
+            dsRegionGroup = xarray.concat(objs=datasets, dim='nRegions')
+            print('dsRegionGroup sizes = ',dsRegionGroup.sizes)
+
+            # save one file for each region group which gets added to every time step
+            write_netcdf_with_fill(dsRegionGroup, output_filename)
 
     
 class PlotRegionWmtSubtask(AnalysisTask):
@@ -298,7 +340,7 @@ class PlotRegionWmtSubtask(AnalysisTask):
     """
 
     def __init__(self, parentTask, regionGroup, regionName, controlConfig,
-                 sectionName, fullSuffix, mpasMasksSubtask):
+                 sectionName, mpasMasksSubtask, fluxVariables):
 
         """
         Construct the analysis task.
@@ -321,29 +363,29 @@ class PlotRegionWmtSubtask(AnalysisTask):
         sectionName : str
             The config section with options for this regionGroup
 
-        fullSuffix : str
-            The regionGroup and regionName combined and modified to be
-            appropriate as a task or file suffix
-
         mpasMasksSubtask : ``ComputeRegionMasksSubtask``
             A task for creating mask MPAS files for each region to plot, used
             to get the mask file name
         """
 
         # first, call the constructor from the base class (AnalysisTask)
+        regionGroupSuffix = regionGroup.replace(' ', '_')
+        regionNameSuffix = regionGroup.replace(' ', '_')
+        filePrefix = f'wmt_{regionGroupSuffix}_{regionNameSuffix}'
         super(PlotRegionWmtSubtask, self).__init__(
             config=parentTask.config,
             taskName=parentTask.taskName,
             componentName=parentTask.componentName,
             tags=parentTask.tags,
-            subtaskName=f'plot_wmt_{fullSuffix}_{regionName}')
+            subtaskName=f'plot_{filePrefix}')
 
         self.regionGroup = regionGroup
         self.regionName = regionName
         self.sectionName = sectionName
         self.controlConfig = controlConfig
         self.mpasMasksSubtask = mpasMasksSubtask
-        self.filePrefix = fullSuffix
+        self.filePrefix = filePrefix
+        self.fluxVariables = fluxVariables
 
     def setup_and_check(self):
         """
@@ -362,10 +404,17 @@ class PlotRegionWmtSubtask(AnalysisTask):
         super(PlotRegionWmtSubtask, self).setup_and_check()
 
         self.xmlFileNames = []
-        for var in self.variableList:
-            self.xmlFileNames.append(
-                f'{self.plotsDirectory}/{self.filePrefix}_'
-                f'{self.regionName}.xml')
+        self.xmlFileNames.append(
+            f'{self.plotsDirectory}/{self.filePrefix}.xml')
+
+        config = self.config
+        startYear = config.getint(self.taskName, 'startYear')
+        endYear = config.getint(self.taskName, 'endYear')
+        self.inputFileNames = []
+        for year in range(startYear, endYear + 1):
+            filename = _get_regional_wmt_file_name(config, startYear=year, endYear=year)
+            if os.path.exists(filename):
+                self.inputFileNames.append()
 
     def run_task(self):
         """
@@ -382,22 +431,28 @@ class PlotRegionWmtSubtask(AnalysisTask):
         base_directory = build_config_full_path(
             config, 'output', 'wmtSubdirectory')
 
-        # This bit of code assumes we are saving separate files for each year
-        # filenames = glob.glob(
-        #         f'{base_directory}/{self.filePrefix}_{self.regionName}_*' \
-        #         'wmt.nc')
-
         # ds_bins = filenames[0]
         # ds_values = []
-        # for filename in filenames:
-        #     with xr.open_dataset(filename) as ds:
-        #         ds_values.append(ds)
 
-        # TODO
-        # open single file corresponding to the region and whole time window considered
-        # average over nCellsRegion to get ds_values
+        # create a single dataset corresponding to the region and whole time window considered
+        ds_alltime = xarray.Dataset()
+        for filename in self.inputFileNames:
+            with xarray.open_dataset(filename) as ds:
+                ds_region = ds.isel(regionNames=self.regionName)
+                ds_alltime = xarray.concat([ds_alltime, ds_region], dim='Time')
+        # If we wanted to select seasons we could do so here
+        ds_out = ds_alltime.mean(dim='Time')
+        output_file_name = f'wmt_{self.regionGroup}_{self.regionName}.nc'
+        write_netcdf_with_fill(ds_out, output_file_name)
+
+        # average over nCellsRegion to get ds_values corresponding to each bin
+        for rho_bin in bins:
+            ds_rho = ds_out # mean over rho bin
+            for var in self.fluxVariables:
+                ds_values.append(ds_rho.var)
 
         wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
+
         file_prefix = f'{self.filePrefix}_' \
                        'cumulative_surface_flux_' \
                        f'{self.regionName}_wmt'
@@ -418,17 +473,18 @@ class PlotRegionWmtSubtask(AnalysisTask):
             imageDescription=caption,
             imageCaption=caption)
 
-def _get_regional_wmt_file_name(startYear, endYear,
+def _get_regional_wmt_file_name(config, startYear, endYear,
     season='ANN'):
 
     monthValues = sorted(constants.monthDictionary[season])
     startMonth = monthValues[0]
     endMonth = monthValues[-1]
 
+    baseDirectory = build_config_full_path(config, 'output', 'wmtSubdirectory')
     suffix = '{:04d}{:02d}_{:04d}{:02d}_climo'.format(
         startYear, startMonth, endYear, endMonth)
 
     if season in constants.abrevMonthNames:
         season = '{:02d}'.format(monthValues[0])
-    fileName = f'{directory}/{wmt}_{season}_{suffix}.nc'
+    fileName = f'{baseDirectory}/wmt_{season}_{suffix}.nc'
     return fileName
