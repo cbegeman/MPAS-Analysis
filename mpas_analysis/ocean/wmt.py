@@ -210,7 +210,7 @@ class ComputeRegionWmtSubtask(AnalysisTask):
 
         iselValues = {'Time': 0,
                       'nVertLevels': 0}
-        surfacePressure = 0. # dbar
+        surface_pressure = 0. # dbar
 
         nBins = len(self.densityBins) - 1
 
@@ -218,21 +218,21 @@ class ComputeRegionWmtSubtask(AnalysisTask):
         ds_out = xarray.Dataset()
         for fileCount, inputFile in enumerate(self.inputFiles):
 
-            print(inputFile)
-            ds = open_mpas_dataset(fileName=inputFile,
-                                   calendar=self.calendar,
-                                   variableList=self.variableList,
-                                   startDate=self.startDate,
-                                   endDate=self.endDate)
+            print(f'load ds: {inputFile}')
+            dsFull = open_mpas_dataset(fileName=inputFile,
+                                       calendar=self.calendar,
+                                       variableList=self.variableList,
+                                       startDate=self.startDate,
+                                       endDate=self.endDate)
             year = self.startYear
-            ds = ds.isel(iselValues)
+            dsFull = dsFull.isel(iselValues)
 
             for regionGroup in self.regionGroups:
                 regionGroupSuffix = regionGroup.replace(' ', '_')
                 output_filename = _get_regional_wmt_file_name(self.config, startYear=year, endYear=year)
 
                 maskFileName = self.masksSubtask.maskFileName
-                print(f'open {maskFileName}')
+                print(f'load dsMask: {maskFileName}')
                 with xarray.open_dataset(maskFileName) as dsRegionMask:
                     maskRegionNames = decode_strings(dsRegionMask.regionNames)
                     regionIndices = []
@@ -250,27 +250,29 @@ class ComputeRegionWmtSubtask(AnalysisTask):
 
                 datasets = []
                 for regionIndex in range(nRegions):
+                    dsRegion = xarray.Dataset()
                     regionName = self.regionNames[regionIndex]
                     self.logger.info(f'    region: {regionName}')
                     regionNameSuffix = regionName.replace(' ', '_')
                     # Downselect cells to those in the region
                     dsMask = dsRegionMask.isel(nRegions=regionIndex)
                     cellMask = dsMask.regionCellMasks == 1
+                    print(f'dsMask sizes: {dsMask.sizes}')
                     # TODO consider open ocean masking here following time_series_ocean_regions
-                    ds = ds.where(cellMask, drop=True)
-                    print(ds.sizes)
+                    ds = dsFull.where(cellMask, drop=True)
                     nCells = ds.sizes['nCells']
 
                     ds_new = xarray.Dataset(
                         data_vars=dict(
-                            regionNames=(["nRegions"], regionName),
+                            #xtime=(["Time"], numpy.zeros((1))), # ds.Time.values),
+                            regionNames=(["nRegions"], numpy.zeros((1), dtype=str)),
                             densityMask=(["Time", "nRegions", "nBins", "nCells"],
                                          numpy.zeros((1, 1, nBins, nCells)))
                         ),
                         coords=dict(
                             density_min=("nBins", self.densityBins[:-1]),
-                            density_max=("nBins", self.densityBins[1:]),
-                            Time=("Time", ds.Time.values)
+                            density_max=("nBins", self.densityBins[1:]) #,
+                            #Time=("Time", ds.Time.values)
                             #xtime_startMonthly=("Time", ds.xtime_startMonthly),
                             #xtime_endMonthly=("Time", ds.xtime_endMonthly)
                         )
@@ -280,27 +282,34 @@ class ComputeRegionWmtSubtask(AnalysisTask):
                     temperature = ds[f'{prefix}_activeTracers_temperature']
                     salinity = ds[f'{prefix}_activeTracers_salinity']
                     density = rho(salinity, temperature, surface_pressure)
+                    #print(ds.Time)
+                    #ds_new['xtime'] = ds.Time
+                    #print(ds_new.xtime)
+                    ds_new['regionNames'][0] = regionName
 
                     # Loop over density bins
                     for iBin in range(nBins):
         
-                        density_min = densityBins[iBin]
-                        density_max = densityBins[iBin + 1]
+                        density_min = self.densityBins[iBin]
+                        density_max = self.densityBins[iBin + 1]
                         # Compute density bin mask
-                        density_mask = xarray.logical_and(density >= density_min,
-                                                      density < density_max) 
+                        density_mask = numpy.logical_and(density.values >= density_min,
+                                                         density.values < density_max) 
 
-                        ds_new['densityMask'][0, 0, :, :] = density_mask
+                        ds_new['densityMask'][0, 0, iBin, :] = density_mask
 
                     # Loop over flux variables
-                    for variable in self.fluxVariable:
+                    flux_masked = numpy.zeros((nBins, nCells))
+                    for variable in self.fluxVariables:
+                        ds_new[f'timeMonthly_avg_{variable}'] = xarray.zeros_like(ds_new.densityMask)
                         # Loop over density bins
                         for iBin in range(nBins):
+                            mask = ds_new['densityMask'][0, 0, iBin, :]
                             # Apply density bin mask to flux variable
                             flux_masked[iBin, :] = ds[f'timeMonthly_avg_{variable}'].values * mask
                             # Make sure this is saved to the right region
 
-                        ds_new['timeMonthly_avg_{variable}'][0, 0, :, :] = flux_masked
+                        ds_new[f'timeMonthly_avg_{variable}'][0, 0, :, :] = flux_masked
 
                     dsRegion = xarray.concat([dsRegion, ds_new], dim='Time')
                     dsRegion.coords['regionNames'] = dsRegion['regionNames']
