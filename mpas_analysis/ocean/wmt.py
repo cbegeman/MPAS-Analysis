@@ -429,6 +429,8 @@ class PlotRegionWmtSubtask(AnalysisTask):
         startYear = config.getint(self.taskName, 'startYear')
         endYear = config.getint(self.taskName, 'endYear')
         self.inputFileNames = []
+        self.startYear = startYear
+        self.endYear = endYear
         for year in range(startYear, endYear + 1):
             filename = _get_regional_wmt_file_name(config, startYear=year, endYear=year,
                 regionGroup=self.regionGroup, regionName=self.regionName)
@@ -458,51 +460,66 @@ class PlotRegionWmtSubtask(AnalysisTask):
         for fileCount, filename in enumerate(self.inputFileNames):
             print(f'load file to plot: {filename}')
             with xarray.open_dataset(filename) as ds_region:
+                ds_region = ds_region.isel(nRegions=0)
                 print(ds_region.sizes)
                 if fileCount == 0:
                     ds_alltime = ds_region.copy()
                 else:
                     ds_alltime = xarray.concat([ds_alltime, ds_region], dim='Time')
         print(ds_alltime.sizes)
-        # If we wanted to select seasons we could do so here
-        ds_out = ds_alltime.mean(dim='Time')
-        output_file_name = f'wmt_{self.regionGroup}_{self.regionName}.nc'
-        write_netcdf_with_fill(ds_out, output_file_name)
 
         # average over nCellsRegion to get ds_values corresponding to each bin
-        ds_bins = ds_out.density_min.values
-        ds_bins.append(ds_out.density_max.values[-1])
-        for iBin in range(ds.sizes['nBins']):
-            mask = ds_new['densityMask'][0, 0, iBin, :]
-            # Apply density bin mask to flux variable
-            for var in self.fluxVariables:
-                flux_masked = xarray.where(mask,
-                                           ds_out[var],
-                                           xr.nan)
-                flux_mean = flux_masked.mean(dim='nCells') # mean over rho bin
-                ds_values.append(flux_mean)
+        ds_bins = numpy.concat((ds_alltime.density_min.values,
+                                [ds_alltime.density_max.values[-1]]))
+        print(f'ds_bins shape {numpy.shape(ds_bins)}')
+        flux_masked = xarray.zeros_like(ds_alltime['densityMask'])
+        for var in self.fluxVariables:
+            flux = ds_alltime[var]
+            #print(f'flux shape {numpy.shape(flux.values)}')
+            print(f'flux shape {flux.sizes}')
+            for iBin in range(ds_alltime.sizes['nBins']):
+                mask = ds_alltime['densityMask'].isel(nBins=iBin)
+                #print(f'mask shape {numpy.shape(mask.values)}')
+                print(f'mask shape {mask.sizes}')
+                # Apply density bin mask to flux variable
+                flux_masked[:, iBin, :] = xarray.where(mask,
+                                                       flux,
+                                                       numpy.nan)
+            # TODO drop unmasked vars or copy only the vars we need to new dataset
+            # ds_alltime = 
+            ds_alltime[f'{var}_binned'] = flux_masked
 
-        wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
+        # by taking mean over nCells, we are actually taking mean over one rho bin 
+        # If we wanted to select seasons we could do so here rather than averaging over all time
+        ds = ds_alltime.mean(dim=['nCells', 'Time'])
 
-        file_prefix = f'{self.filePrefix}_' \
-                       'cumulative_surface_flux_' \
-                       f'{self.regionName}_wmt'
-        caption = f'Climatological surface flux WMT for ' \
-                  f'{self.regionName.replace("_", " ")}'
-        out_filename = f'{self.plotsDirectory}/{file_prefix}.png'
-        savefig(out_filename, config)
+        output_file_name = f'wmt_{self.regionGroup}_{self.regionName}_' \
+                           f'{self.startYear}-{self.endYear}.nc'
+        print(f'write averaged file to {output_file_name}')
+        write_netcdf_with_fill(ds, output_file_name)
 
-        write_image_xml(
-            config=config,
-            filePrefix=file_prefix,
-            componentName='Ocean',
-            componentSubdirectory='ocean',
-            galleryGroup=f'{self.regionGroup} WMT',
-            groupLink=f'wmtCumulative',
-            gallery='wmt',
-            thumbnailDescription=f'{self.regionName.replace("_", " ")} ',
-            imageDescription=caption,
-            imageCaption=caption)
+        #ds_values = 
+        #wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
+
+        #file_prefix = f'{self.filePrefix}_' \
+        #               'cumulative_surface_flux_' \
+        #               f'{self.regionName}_wmt'
+        #caption = f'Climatological surface flux WMT for ' \
+        #          f'{self.regionName.replace("_", " ")}'
+        #out_filename = f'{self.plotsDirectory}/{file_prefix}.png'
+        #savefig(out_filename, config)
+
+        #write_image_xml(
+        #    config=config,
+        #    filePrefix=file_prefix,
+        #    componentName='Ocean',
+        #    componentSubdirectory='ocean',
+        #    galleryGroup=f'{self.regionGroup} WMT',
+        #    groupLink=f'wmtCumulative',
+        #    gallery='wmt',
+        #    thumbnailDescription=f'{self.regionName.replace("_", " ")} ',
+        #    imageDescription=caption,
+        #    imageCaption=caption)
 
 def _get_regional_wmt_file_name(config, startYear, endYear,
     regionGroup, regionName, season='ANN'):
