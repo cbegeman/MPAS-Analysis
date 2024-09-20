@@ -29,7 +29,7 @@ from mpas_analysis.shared.plot.ticks import plot_xtick_format
 from mpas_analysis.shared.plot.title import limit_title
 
 
-def wmt_yearly_plot(config, dsBins, dsValues,
+def wmt_yearly_plot(config, ds,
                     mode='cumulative',
                     title=None, xLabel=None, yLabel=None,
                     lineColors=None, lineStyles=None, markers=None,
@@ -115,11 +115,13 @@ def wmt_yearly_plot(config, dsBins, dsValues,
     axis_font = {'size': axisFontSize}
 
     # get density bin centers
-    bin_centers = ds.densBinsCenters.isel(time=0)
+    #bin_centers = ds.densBinsCenters.isel(time=0)
+    bin_centers = (ds.rho_min.values + ds.rho_max.values) / 2.
 
     # get density variables from datasets
     if mode == 'cumulative':
         data_vars = ['dens_IOAO_FWflux', 'dens_hap']
+        #data_vars = ['dens_IOAO_FWflux', 'dens_hap']
     elif mode == 'decomp':
         data_vars = ['dens_AO_FWflux', 'dens_rivRof', 'dens_ISMF', 'dens_melt',
                      'dens_brine', 'dens_iceRof']
