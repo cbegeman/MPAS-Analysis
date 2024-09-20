@@ -453,9 +453,6 @@ class PlotRegionWmtSubtask(AnalysisTask):
         base_directory = build_config_full_path(
             config, 'output', 'wmtSubdirectory')
 
-        # ds_bins = filenames[0]
-        # ds_values = []
-
         # create a single dataset corresponding to the region and whole time window considered
         for fileCount, filename in enumerate(self.inputFileNames):
             print(f'load file to plot: {filename}')
@@ -472,34 +469,32 @@ class PlotRegionWmtSubtask(AnalysisTask):
         ds_bins = numpy.concat((ds_alltime.density_min.values,
                                 [ds_alltime.density_max.values[-1]]))
         print(f'ds_bins shape {numpy.shape(ds_bins)}')
-        flux_masked = xarray.zeros_like(ds_alltime['densityMask'])
         for var in self.fluxVariables:
-            flux = ds_alltime[var]
-            #print(f'flux shape {numpy.shape(flux.values)}')
-            print(f'flux shape {flux.sizes}')
+            flux_masked = numpy.zeros((ds_alltime.sizes['Time'],
+                                       ds_alltime.sizes['nBins']))
             for iBin in range(ds_alltime.sizes['nBins']):
-                mask = ds_alltime['densityMask'].isel(nBins=iBin)
-                #print(f'mask shape {numpy.shape(mask.values)}')
-                print(f'mask shape {mask.sizes}')
-                # Apply density bin mask to flux variable
-                flux_masked[:, iBin, :] = xarray.where(mask,
-                                                       flux,
-                                                       numpy.nan)
-            # TODO drop unmasked vars or copy only the vars we need to new dataset
-            # ds_alltime = 
-            ds_alltime[f'{var}_binned'] = flux_masked
+                for iTime in range(ds_alltime.sizes['Time']):
+                    flux = ds_alltime[var].isel(Time=iTime).values
+                    mask = ds_alltime['densityMask'].isel(Time=iTime, nBins=iBin).values
+                    # Apply density bin mask to flux variable
+                    if numpy.sum(mask==1) == 0:
+                        flux_masked[iTime, iBin] = 0.
+                    else:
+                        flux_masked[iTime, iBin] = numpy.nanmean(flux[mask])
+            ds_alltime[f'{var}_binned'] = (("Time", "nBins"), flux_masked)
 
         # by taking mean over nCells, we are actually taking mean over one rho bin 
         # If we wanted to select seasons we could do so here rather than averaging over all time
-        ds = ds_alltime.mean(dim=['nCells', 'Time'])
+        ds = ds_alltime.mean(dim='Time')
 
-        output_file_name = f'wmt_{self.regionGroup}_{self.regionName}_' \
-                           f'{self.startYear}-{self.endYear}.nc'
+        output_file_name = _get_regional_wmt_file_name(
+            config, startYear=self.startYear, endYear=self.endYear,
+            regionGroup=self.regionGroup, regionName=self.regionName,
+            time_averaged=True)
         print(f'write averaged file to {output_file_name}')
         write_netcdf_with_fill(ds, output_file_name)
 
-        #ds_values = 
-        #wmt_yearly_plot(config, ds_bins, ds_values, mode='cumulative')
+        wmt_yearly_plot(config, ds, mode='cumulative')
 
         #file_prefix = f'{self.filePrefix}_' \
         #               'cumulative_surface_flux_' \
@@ -522,7 +517,7 @@ class PlotRegionWmtSubtask(AnalysisTask):
         #    imageCaption=caption)
 
 def _get_regional_wmt_file_name(config, startYear, endYear,
-    regionGroup, regionName, season='ANN'):
+    regionGroup, regionName, season='ANN', time_averaged=False):
 
     regionGroupSuffix = regionGroup.replace(' ', '_')
     regionNameSuffix = regionName.replace(' ', '_')
@@ -536,5 +531,9 @@ def _get_regional_wmt_file_name(config, startYear, endYear,
 
     if season in constants.abrevMonthNames:
         season = '{:02d}'.format(monthValues[0])
-    fileName = f'{baseDirectory}/wmt_{regionGroupSuffix}_{regionNameSuffix}_{season}_{suffix}.nc'
+    if time_averaged:
+        prefix = 'wmt_tavg'
+    else:
+        prefix = 'wmt'
+    fileName = f'{baseDirectory}/{prefix}_{regionGroupSuffix}_{regionNameSuffix}_{season}_{suffix}.nc'
     return fileName
