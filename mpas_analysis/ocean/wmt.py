@@ -423,7 +423,7 @@ class PlotRegionWmtSubtask(AnalysisTask):
 
         self.xmlFileNames = []
         self.xmlFileNames.append(
-            f'{self.plotsDirectory}/{self.filePrefix}.xml')
+            f'{self.plotsDirectory}/{self.filePrefix}_cumulative_surface_flux.xml')
 
         config = self.config
         startYear = config.getint(self.taskName, 'startYear')
@@ -481,7 +481,7 @@ class PlotRegionWmtSubtask(AnalysisTask):
                         flux_masked[iTime, iBin] = 0.
                     else:
                         flux_masked[iTime, iBin] = numpy.nanmean(flux[mask])
-            ds_alltime[f'{var}_binned'] = (("Time", "nBins"), flux_masked)
+            ds_alltime[f'{var}'] = (("Time", "nBins"), flux_masked)
 
         # by taking mean over nCells, we are actually taking mean over one rho bin 
         # If we wanted to select seasons we could do so here rather than averaging over all time
@@ -494,27 +494,27 @@ class PlotRegionWmtSubtask(AnalysisTask):
         print(f'write averaged file to {output_file_name}')
         write_netcdf_with_fill(ds, output_file_name)
 
-        wmt_yearly_plot(config, ds, mode='cumulative')
+        fig = wmt_yearly_plot(config, ds, mode='cumulative')
 
-        #file_prefix = f'{self.filePrefix}_' \
-        #               'cumulative_surface_flux_' \
-        #               f'{self.regionName}_wmt'
-        #caption = f'Climatological surface flux WMT for ' \
-        #          f'{self.regionName.replace("_", " ")}'
-        #out_filename = f'{self.plotsDirectory}/{file_prefix}.png'
-        #savefig(out_filename, config)
+        file_prefix = f'{self.filePrefix}_' \
+                       'cumulative_surface_flux'
+        caption = f'Climatological surface flux WMT for ' \
+                  f'{self.regionName}'
+        out_filename = f'{self.plotsDirectory}/{file_prefix}_cumulative_surface_flux.png'
+        print(f'saving {out_filename}')
+        savefig(out_filename, config)
 
-        #write_image_xml(
-        #    config=config,
-        #    filePrefix=file_prefix,
-        #    componentName='Ocean',
-        #    componentSubdirectory='ocean',
-        #    galleryGroup=f'{self.regionGroup} WMT',
-        #    groupLink=f'wmtCumulative',
-        #    gallery='wmt',
-        #    thumbnailDescription=f'{self.regionName.replace("_", " ")} ',
-        #    imageDescription=caption,
-        #    imageCaption=caption)
+        write_image_xml(
+            config=config,
+            filePrefix=f'{self.filePrefix}_cumulative_surface_flux',
+            componentName='Ocean',
+            componentSubdirectory='ocean',
+            galleryGroup=f'{self.regionGroup} WMT',
+            groupLink=f'wmtCumulative',
+            gallery='wmt',
+            thumbnailDescription=f'{self.regionName.replace("_", " ")} ',
+            imageDescription=caption,
+            imageCaption=caption)
 
 def _get_regional_wmt_file_name(config, startYear, endYear,
     regionGroup, regionName, season='ANN', time_averaged=False):

@@ -95,6 +95,7 @@ def wmt_yearly_plot(config, ds,
     # Authors
     # -------
     # Carolyn Begeman, Adrian Turner, Xylar Asay-Davis
+    # TODO consider histogram rather than line plot
 
     if defaultFontSize is None:
         defaultFontSize = config.getint('plot', 'defaultFontSize')
@@ -116,27 +117,45 @@ def wmt_yearly_plot(config, ds,
 
     # get density bin centers
     #bin_centers = ds.densBinsCenters.isel(time=0)
-    bin_centers = (ds.rho_min.values + ds.rho_max.values) / 2.
+    bin_centers = (ds.density_min.values + ds.density_max.values) / 2.
 
     # get density variables from datasets
     if mode == 'cumulative':
-        data_vars = ['dens_IOAO_FWflux', 'dens_hap']
-        #data_vars = ['dens_IOAO_FWflux', 'dens_hap']
+        data = np.zeros((len(bin_centers), 3))
+        data[:, 0] = ds.evaporationFlux.values + \
+                     ds.rainFlux.values + \
+                     ds.snowFlux.values + \
+                     ds.riverRunoffFlux.values + \
+                     ds.iceRunoffFlux.values + \
+                     ds.seaIceFreshWaterFlux.values
+        if 'landIceFreshwaterFlux' in ds.keys():
+            data[:, 0] = data[:, 0] + ds.landIceFreshWaterFlux.values
+        data[:, 1] = 1.0558 * ds.shortWaveHeatFlux.values + \
+                     ds.sensibleHeatFlux.values + \
+                     ds.longWaveHeatFluxDown.values + \
+                     ds.longWaveHeatFluxUp.values + \
+                     ds.latentHeatFlux.values + \
+                     ds.seaIceHeatFlux.values   # FIX:  What is this?  Check this.
+        data[:, 2] = data[:, 0] + data[:, 1]
+        data_vars = ['dens_IOAO_FWflux', 'dens_hap', 'dens_total']
+        caption = 'Sea ice-ocean and atmosphere-ocean freshwater flux at ' \
+                  'cell centers derived from coupler fields. Positive into ' \
+                  'the ocean.'
     elif mode == 'decomp':
         data_vars = ['dens_AO_FWflux', 'dens_rivRof', 'dens_ISMF', 'dens_melt',
                      'dens_brine', 'dens_iceRof']
     else:
         raise(f'Mode {mode} not supported')
 
-    ds = xr.Dataset()
-    for ds_single in dsValues:
-        for data_var in data_vars:
-            if data_var in ds.keys():
-                ds = xr.concat([ds, ds_single], dim='time',
-                               data_vars={data_var},
-                               coords='minimal')
-            else:
-                ds[data_var] = ds_single[data_var]
+    # ds = xr.Dataset()
+    # for ds_single in dsValues:
+    #     for data_var in data_vars:
+    #         if data_var in ds.keys():
+    #             ds = xr.concat([ds, ds_single], dim='time',
+    #                            data_vars={data_var},
+    #                            coords='minimal')
+    #         else:
+    #             ds[data_var] = ds_single[data_var]
 
     if title is not None:
         title = limit_title(title, maxTitleLength)
@@ -155,12 +174,10 @@ def wmt_yearly_plot(config, ds,
     if lineWidths is None or len(lineWidths) != len(data_vars):
         lineWidths = [1.0 for i in data_vars]
     if mode == 'cumulative':
-        ds['dens_total'] = ds.dens_IOAO_FWflux + ds.dens_hap
-        data_vars.append = 'dens_total'
         if lineColors is None or len(lineColors) != len(data_vars):
-            lineColors = [TODO]
+            lineColors = ['r', 'b', 'k']
         if legendText is None or len(legendText) != len(data_vars):
-            legendText = [TODO]
+            legendText = ['freshwater flux', 'heat flux', 'total']
     elif mode == 'decomp':
         ds['dens_EPR'] = ds.dens_AO_FWflux + ds.dens_rivRof
         data_vars.append = 'dens_EPR'
@@ -175,13 +192,13 @@ def wmt_yearly_plot(config, ds,
         yLabel = 'Transformation rate (Sv)'
 
     fig = plt.figure(figsize=figsize, dpi=dpi)
-    for idx, data_var in data_vars:
-        data = ds[data_var]
-        data = data.mean(dim='time')
-        plot(bin_centers, data,
-             color=lineColors[idx], linestyle=lineStyles[idx],
-             linewidth=lineWidths[idx], marker=markers[idx],
-             label=limit_title(legendText[idx], maxTitleLength))
+    for idx, data_var in enumerate(data_vars):
+        #data = ds[data_var]
+        #data = data.mean(dim='time')
+        plt.plot(bin_centers, data[:, idx],
+                 color=lineColors[idx], linestyle=lineStyles[idx],
+                 linewidth=lineWidths[idx], marker=markers[idx],
+                 label=limit_title(legendText[idx], maxTitleLength))
     if title is not None:
         plt.title(title, **title_font)
     if title is not None:
@@ -195,6 +212,6 @@ def wmt_yearly_plot(config, ds,
     axis_font = {'size': axisFontSize}
     plt.xlabel(xLabel, **axis_font)
     plt.ylabel(yLabel, **axis_font)
-    plt.legend(loc=LegendLocation)
+    plt.legend(loc=legendLocation)
 
     return fig
